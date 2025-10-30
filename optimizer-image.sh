@@ -4,28 +4,33 @@
 DEFAULT_QUALITY=85
 DEFAULT_WIDTH=""
 DEFAULT_FORMAT=""
+DEFAULT_INPUT_DIR="."
 
 # --- Help function ---
 show_help() {
     echo "Uso: ./optimizer.sh [opciones]"
     echo ""
     echo "Opciones:"
-    echo "  --quality <num>  Establece el nivel de calidad para imágenes JPG/JPEG (1-100). Por defecto: $DEFAULT_QUALITY."
-    echo "  --width <num>    Establece el ancho máximo en píxeles para las imágenes, manteniendo la relación de aspecto."
-    echo "  --format <fmt>   Convierte las imágenes al formato especificado (jpg, jpeg, png, webp, etc.)."
-    echo "                   Si no se especifica, mantiene el formato original."
-    echo "  -h, --help       Muestra esta ayuda y sale."
+    echo "  --quality <num>     Establece el nivel de calidad para imágenes JPG/JPEG (1-100). Por defecto: $DEFAULT_QUALITY."
+    echo "  --width <num>       Establece el ancho máximo en píxeles para las imágenes, manteniendo la relación de aspecto."
+    echo "  --format <fmt>      Convierte las imágenes al formato especificado (jpg, jpeg, png, webp, etc.)."
+    echo "                      Si no se especifica, mantiene el formato original."
+    echo "  --dir-input <path>  Directorio donde se encuentran las imágenes a optimizar. Por defecto: directorio actual."
+    echo "  -h, --help          Muestra esta ayuda y sale."
     echo ""
     echo "Ejemplos:"
     echo "  ./optimizer.sh --quality 80 --width 1024"
     echo "  ./optimizer.sh --format webp --quality 90"
     echo "  ./optimizer.sh --format jpg --quality 85 --width 800"
+    echo "  ./optimizer.sh --dir-input public/img --format webp"
+    echo "  ./optimizer.sh --dir-input /home/user/images --quality 90 --width 1920"
 }
 
 # --- Argument parsing ---
 QUALITY=$DEFAULT_QUALITY
 WIDTH=$DEFAULT_WIDTH
 FORMAT=$DEFAULT_FORMAT
+INPUT_DIR=$DEFAULT_INPUT_DIR
 
 while [[ "$#" -gt 0 ]]; do
     case $1 in
@@ -60,6 +65,15 @@ while [[ "$#" -gt 0 ]]; do
                 exit 1
             fi
             ;;
+        --dir-input)
+            if [[ -n "$2" ]]; then
+                INPUT_DIR="$2"
+                shift
+            else
+                echo "Error: --dir-input requiere especificar un directorio." >&2
+                exit 1
+            fi
+            ;;
         *)
             echo "Parámetro desconocido: $1"
             show_help
@@ -71,19 +85,25 @@ done
 
 # --- Rest of the script ---
 
+# Validar que el directorio de entrada existe
+if [ ! -d "$INPUT_DIR" ]; then
+    echo "Error: El directorio '$INPUT_DIR' no existe." >&2
+    exit 1
+fi
+
 # Directorio de salida para las imágenes optimizadas
 OUTPUT_DIR="optimized"
 
-# Encuentra los archivos de imagen en el directorio actual
-files=$(find . -maxdepth 1 -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" \))
+# Encuentra los archivos de imagen en el directorio especificado
+files=$(find "$INPUT_DIR" -maxdepth 1 -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" \))
 
 if [ -z "$files" ]; then
-    echo "No se encontraron imágenes para optimizar en el directorio actual."
+    echo "No se encontraron imágenes para optimizar en el directorio '$INPUT_DIR'."
     exit 0
 fi
 
 echo "Las siguientes imágenes se optimizarán y se guardarán en la carpeta '$OUTPUT_DIR':"
-echo "$files" | sed 's|^\./||' | while IFS= read -r file; do
+echo "$files" | sed "s|^$INPUT_DIR/||" | sed 's|^\./||' | while IFS= read -r file; do
     echo "- $file"
 done
 
@@ -91,6 +111,7 @@ initial_size_bytes=$(du -bc $files 2>/dev/null | tail -n 1 | awk '{print $1}')
 initial_size_human=$(du -h -c $files 2>/dev/null | tail -n 1 | awk '{print $1}')
 
 echo
+echo "Directorio de entrada: $INPUT_DIR"
 echo "Nivel de calidad para JPG/JPEG: $QUALITY%"
 if [ -n "$WIDTH" ]; then
     echo "Ancho de imagen: ${WIDTH}px"
@@ -117,16 +138,17 @@ mkdir -p "$OUTPUT_DIR"
 echo "Optimizando imágenes..."
 
 # Itera sobre cada archivo para procesarlo con 'convert'
-echo "$files" | sed 's|^\./||' | while IFS= read -r file; do
-    # Obtener nombre base y extensión
-    base_name="${file%.*}"
+echo "$files" | while IFS= read -r file; do
+    # Obtener solo el nombre del archivo (sin la ruta del directorio)
+    filename=$(basename "$file")
+    base_name="${filename%.*}"
     
     # Definir extensión de salida
     if [ -n "$FORMAT" ]; then
         output_extension="$FORMAT"
         output_file="${base_name}.${FORMAT}"
     else
-        output_file="$file"
+        output_file="$filename"
     fi
     
     # Define la ruta de salida
@@ -166,7 +188,7 @@ echo "$files" | sed 's|^\./||' | while IFS= read -r file; do
     eval $convert_cmd
     
     # Mostrar progreso
-    echo "Procesado: $file -> $output_file"
+    echo "Procesado: $filename -> $output_file"
 done
 
 echo "Optimización completada. Las nuevas imágenes están en la carpeta '$OUTPUT_DIR'."
