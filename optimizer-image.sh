@@ -5,18 +5,20 @@ DEFAULT_QUALITY=85
 DEFAULT_WIDTH=""
 DEFAULT_FORMAT=""
 DEFAULT_INPUT_DIR="."
+DEFAULT_OUTPUT_DIR="optimized"
 
 # --- Help function ---
 show_help() {
     echo "Uso: ./optimizer.sh [opciones]"
     echo ""
     echo "Opciones:"
-    echo "  --quality <num>     Establece el nivel de calidad para imágenes JPG/JPEG (1-100). Por defecto: $DEFAULT_QUALITY."
-    echo "  --width <num>       Establece el ancho máximo en píxeles para las imágenes, manteniendo la relación de aspecto."
-    echo "  --format <fmt>      Convierte las imágenes al formato especificado (jpg, jpeg, png, webp, etc.)."
-    echo "                      Si no se especifica, mantiene el formato original."
-    echo "  --dir-input <path>  Directorio donde se encuentran las imágenes a optimizar. Por defecto: directorio actual."
-    echo "  -h, --help          Muestra esta ayuda y sale."
+    echo "  --quality <num>      Establece el nivel de calidad para imágenes JPG/JPEG (1-100). Por defecto: $DEFAULT_QUALITY."
+    echo "  --width <num>        Establece el ancho máximo en píxeles para las imágenes, manteniendo la relación de aspecto."
+    echo "  --format <fmt>       Convierte las imágenes al formato especificado (jpg, jpeg, png, webp, etc.)."
+    echo "                       Si no se especifica, mantiene el formato original."
+    echo "  --dir-input <path>   Directorio donde se encuentran las imágenes a optimizar. Por defecto: directorio actual."
+    echo "  --dir-output <path>  Directorio donde guardar las imágenes optimizadas. Por defecto: $DEFAULT_OUTPUT_DIR."
+    echo "  -h, --help           Muestra esta ayuda y sale."
     echo ""
     echo "Ejemplos:"
     echo "  ./optimizer.sh --quality 80 --width 1024"
@@ -24,6 +26,8 @@ show_help() {
     echo "  ./optimizer.sh --format jpg --quality 85 --width 800"
     echo "  ./optimizer.sh --dir-input public/img --format webp"
     echo "  ./optimizer.sh --dir-input /home/user/images --quality 90 --width 1920"
+    echo "  ./optimizer.sh --dir-input public/img --dir-output public/optimized --format webp"
+    echo "  ./optimizer.sh --dir-output results --quality 90"
 }
 
 # --- Argument parsing ---
@@ -31,6 +35,7 @@ QUALITY=$DEFAULT_QUALITY
 WIDTH=$DEFAULT_WIDTH
 FORMAT=$DEFAULT_FORMAT
 INPUT_DIR=$DEFAULT_INPUT_DIR
+OUTPUT_DIR=$DEFAULT_OUTPUT_DIR
 
 while [[ "$#" -gt 0 ]]; do
     case $1 in
@@ -74,6 +79,15 @@ while [[ "$#" -gt 0 ]]; do
                 exit 1
             fi
             ;;
+        --dir-output)
+            if [[ -n "$2" ]]; then
+                OUTPUT_DIR="$2"
+                shift
+            else
+                echo "Error: --dir-output requiere especificar un directorio." >&2
+                exit 1
+            fi
+            ;;
         *)
             echo "Parámetro desconocido: $1"
             show_help
@@ -90,9 +104,6 @@ if [ ! -d "$INPUT_DIR" ]; then
     echo "Error: El directorio '$INPUT_DIR' no existe." >&2
     exit 1
 fi
-
-# Directorio de salida para las imágenes optimizadas
-OUTPUT_DIR="optimized"
 
 # Encuentra los archivos de imagen en el directorio especificado
 files=$(find "$INPUT_DIR" -maxdepth 1 -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" \))
@@ -112,6 +123,7 @@ initial_size_human=$(du -h -c $files 2>/dev/null | tail -n 1 | awk '{print $1}')
 
 echo
 echo "Directorio de entrada: $INPUT_DIR"
+echo "Directorio de salida: $OUTPUT_DIR"
 echo "Nivel de calidad para JPG/JPEG: $QUALITY%"
 if [ -n "$WIDTH" ]; then
     echo "Ancho de imagen: ${WIDTH}px"

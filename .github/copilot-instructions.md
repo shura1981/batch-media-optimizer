@@ -8,9 +8,10 @@ This repository contains two Bash utilities for media optimization:
 ## Architecture & Dependencies
 - **Pure Bash**: No frameworks, just shell scripting with external tools
 - **Required tools**: ImageMagick (`convert`) for images, FFmpeg for videos
-- **Output pattern**: Each script creates its own output directory (`optimized/`, `videos_renderizados/`)
-- **File processing**: Batch processing with support for custom input directories
+- **Output pattern**: Configurable output directories with defaults (`optimized/`, `videos_renderizados/`)
+- **File processing**: Batch processing with support for custom input/output directories
 - **Default behavior**: Process files from current directory unless `--dir-input` is specified
+- **Directory handling**: Both input and output directories support relative paths from script location
 
 ## Key Development Patterns
 
@@ -67,6 +68,7 @@ human_readable() {
 - Resize with aspect ratio preservation: `-resize ${WIDTH}x`
 - Format conversion support: `--format webp|jpg|png`
 - Input directory specification: `--dir-input <path>` (defaults to current directory)
+- Output directory specification: `--dir-output <path>` (defaults to `optimized/`)
 - PNG compression: uses maximum compression level (9)
 
 ### Video Compression (FFmpeg)  
