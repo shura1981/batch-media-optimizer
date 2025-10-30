@@ -16,12 +16,12 @@ This repository contains two Bash utilities for media optimization:
 ## Key Development Patterns
 
 ### CLI Argument Parsing
-Both scripts use comprehensive argument validation:
+Both scripts use comprehensive argument validation with support for short and long options:
 ```bash
-# Standard pattern for parameter validation
+# Standard pattern for parameter validation with aliases
 while [[ "$#" -gt 0 ]]; do
     case $1 in
-        --quality)
+        -q|--quality)
             if [[ -n "$2" && "$2" =~ ^[0-9]+$ && "$2" -ge 1 && "$2" -le 100 ]]; then
                 QUALITY="$2"; shift
             else
@@ -31,6 +31,7 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 ```
+**Image optimizer aliases**: `-q` (quality), `-w` (width), `-f` (format), `-i` (dir-input), `-o` (dir-output), `-h` (help)
 
 ### Video Resolution Presets
 The video optimizer uses predefined resolution modes:

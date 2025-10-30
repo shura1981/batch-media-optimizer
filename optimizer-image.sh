@@ -12,22 +12,22 @@ show_help() {
     echo "Uso: ./optimizer.sh [opciones]"
     echo ""
     echo "Opciones:"
-    echo "  --quality <num>      Establece el nivel de calidad para imágenes JPG/JPEG (1-100). Por defecto: $DEFAULT_QUALITY."
-    echo "  --width <num>        Establece el ancho máximo en píxeles para las imágenes, manteniendo la relación de aspecto."
-    echo "  --format <fmt>       Convierte las imágenes al formato especificado (jpg, jpeg, png, webp, etc.)."
-    echo "                       Si no se especifica, mantiene el formato original."
-    echo "  --dir-input <path>   Directorio donde se encuentran las imágenes a optimizar. Por defecto: directorio actual."
-    echo "  --dir-output <path>  Directorio donde guardar las imágenes optimizadas. Por defecto: $DEFAULT_OUTPUT_DIR."
-    echo "  -h, --help           Muestra esta ayuda y sale."
+    echo "  -q, --quality <num>      Establece el nivel de calidad para imágenes JPG/JPEG (1-100). Por defecto: $DEFAULT_QUALITY."
+    echo "  -w, --width <num>        Establece el ancho máximo en píxeles para las imágenes, manteniendo la relación de aspecto."
+    echo "  -f, --format <fmt>       Convierte las imágenes al formato especificado (jpg, jpeg, png, webp, etc.)."
+    echo "                           Si no se especifica, mantiene el formato original."
+    echo "  -i, --dir-input <path>   Directorio donde se encuentran las imágenes a optimizar. Por defecto: directorio actual."
+    echo "  -o, --dir-output <path>  Directorio donde guardar las imágenes optimizadas. Por defecto: $DEFAULT_OUTPUT_DIR."
+    echo "  -h, --help               Muestra esta ayuda y sale."
     echo ""
     echo "Ejemplos:"
-    echo "  ./optimizer.sh --quality 80 --width 1024"
+    echo "  ./optimizer.sh -q 80 -w 1024"
     echo "  ./optimizer.sh --format webp --quality 90"
-    echo "  ./optimizer.sh --format jpg --quality 85 --width 800"
-    echo "  ./optimizer.sh --dir-input public/img --format webp"
-    echo "  ./optimizer.sh --dir-input /home/user/images --quality 90 --width 1920"
-    echo "  ./optimizer.sh --dir-input public/img --dir-output public/optimized --format webp"
-    echo "  ./optimizer.sh --dir-output results --quality 90"
+    echo "  ./optimizer.sh -f jpg -q 85 -w 800"
+    echo "  ./optimizer.sh -i public/img -f webp"
+    echo "  ./optimizer.sh --dir-input /home/user/images -q 90 -w 1920"
+    echo "  ./optimizer.sh -i public/img -o public/optimized -f webp"
+    echo "  ./optimizer.sh -o results -q 90"
 }
 
 # --- Argument parsing ---
@@ -43,7 +43,7 @@ while [[ "$#" -gt 0 ]]; do
             show_help
             exit 0
             ;;
-        --quality)
+        -q|--quality)
             if [[ -n "$2" && "$2" =~ ^[0-9]+$ && "$2" -ge 1 && "$2" -le 100 ]]; then
                 QUALITY="$2"
                 shift
@@ -52,7 +52,7 @@ while [[ "$#" -gt 0 ]]; do
                 exit 1
             fi
             ;;
-        --width)
+        -w|--width)
             if [[ -n "$2" && "$2" =~ ^[0-9]+$ ]]; then
                 WIDTH="$2"
                 shift
@@ -61,7 +61,7 @@ while [[ "$#" -gt 0 ]]; do
                 exit 1
             fi
             ;;
-        --format)
+        -f|--format)
             if [[ -n "$2" ]]; then
                 FORMAT="$2"
                 shift
@@ -70,7 +70,7 @@ while [[ "$#" -gt 0 ]]; do
                 exit 1
             fi
             ;;
-        --dir-input)
+        -i|--dir-input)
             if [[ -n "$2" ]]; then
                 INPUT_DIR="$2"
                 shift
@@ -79,7 +79,7 @@ while [[ "$#" -gt 0 ]]; do
                 exit 1
             fi
             ;;
-        --dir-output)
+        -o|--dir-output)
             if [[ -n "$2" ]]; then
                 OUTPUT_DIR="$2"
                 shift
