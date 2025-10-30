@@ -3,6 +3,7 @@
 # --- Default values ---
 DEFAULT_QUALITY=85
 DEFAULT_WIDTH=""
+DEFAULT_FORMAT=""
 
 # --- Help function ---
 show_help() {
@@ -11,15 +12,20 @@ show_help() {
     echo "Opciones:"
     echo "  --quality <num>  Establece el nivel de calidad para imágenes JPG/JPEG (1-100). Por defecto: $DEFAULT_QUALITY."
     echo "  --width <num>    Establece el ancho máximo en píxeles para las imágenes, manteniendo la relación de aspecto."
+    echo "  --format <fmt>   Convierte las imágenes al formato especificado (jpg, jpeg, png, webp, etc.)."
+    echo "                   Si no se especifica, mantiene el formato original."
     echo "  -h, --help       Muestra esta ayuda y sale."
     echo ""
-    echo "Ejemplo:"
+    echo "Ejemplos:"
     echo "  ./optimizer.sh --quality 80 --width 1024"
+    echo "  ./optimizer.sh --format webp --quality 90"
+    echo "  ./optimizer.sh --format jpg --quality 85 --width 800"
 }
 
 # --- Argument parsing ---
 QUALITY=$DEFAULT_QUALITY
 WIDTH=$DEFAULT_WIDTH
+FORMAT=$DEFAULT_FORMAT
 
 while [[ "$#" -gt 0 ]]; do
     case $1 in
@@ -42,6 +48,15 @@ while [[ "$#" -gt 0 ]]; do
                 shift
             else
                 echo "Error: --width requiere un número." >&2
+                exit 1
+            fi
+            ;;
+        --format)
+            if [[ -n "$2" ]]; then
+                FORMAT="$2"
+                shift
+            else
+                echo "Error: --format requiere especificar un formato (jpg, jpeg, png, webp, etc.)." >&2
                 exit 1
             fi
             ;;
@@ -80,6 +95,11 @@ echo "Nivel de calidad para JPG/JPEG: $QUALITY%"
 if [ -n "$WIDTH" ]; then
     echo "Ancho de imagen: ${WIDTH}px"
 fi
+if [ -n "$FORMAT" ]; then
+    echo "Formato de salida: $FORMAT"
+else
+    echo "Formato de salida: mantener original"
+fi
 echo "Tamaño total antes de la optimización: $initial_size_human"
 echo
 
@@ -98,8 +118,19 @@ echo "Optimizando imágenes..."
 
 # Itera sobre cada archivo para procesarlo con 'convert'
 echo "$files" | sed 's|^\./||' | while IFS= read -r file; do
+    # Obtener nombre base y extensión
+    base_name="${file%.*}"
+    
+    # Definir extensión de salida
+    if [ -n "$FORMAT" ]; then
+        output_extension="$FORMAT"
+        output_file="${base_name}.${FORMAT}"
+    else
+        output_file="$file"
+    fi
+    
     # Define la ruta de salida
-    output_path="$OUTPUT_DIR/$file"
+    output_path="$OUTPUT_DIR/$output_file"
     
     # Build the convert command
     convert_cmd="convert \"$file\" -strip"
@@ -108,13 +139,34 @@ echo "$files" | sed 's|^\./||' | while IFS= read -r file; do
         convert_cmd="$convert_cmd -resize ${WIDTH}x"
     fi
 
-    if [[ "$file" == *.jpg ]] || [[ "$file" == *.jpeg ]] || [[ "$file" == *.JPG ]] || [[ "$file" == *.JPEG ]]; then
-        convert_cmd="$convert_cmd -quality $QUALITY"
+    # Aplicar configuración de calidad según el formato final
+    if [ -n "$FORMAT" ]; then
+        case "${FORMAT,,}" in
+            jpg|jpeg)
+                convert_cmd="$convert_cmd -quality $QUALITY"
+                ;;
+            webp)
+                # WebP usa un rango de calidad similar pero optimizado
+                convert_cmd="$convert_cmd -quality $QUALITY"
+                ;;
+            png)
+                # PNG es sin pérdida, pero podemos optimizar la compresión
+                convert_cmd="$convert_cmd -define png:compression-level=9"
+                ;;
+        esac
+    else
+        # Mantener formato original, aplicar calidad si es JPEG
+        if [[ "$file" == *.jpg ]] || [[ "$file" == *.jpeg ]] || [[ "$file" == *.JPG ]] || [[ "$file" == *.JPEG ]]; then
+            convert_cmd="$convert_cmd -quality $QUALITY"
+        fi
     fi
 
     convert_cmd="$convert_cmd \"$output_path\""
 
     eval $convert_cmd
+    
+    # Mostrar progreso
+    echo "Procesado: $file -> $output_file"
 done
 
 echo "Optimización completada. Las nuevas imágenes están en la carpeta '$OUTPUT_DIR'."
