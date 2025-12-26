@@ -9,6 +9,7 @@ Este repositorio contiene dos utilidades de línea de comandos diseñadas para l
 - **`optimizer-image.sh`**: Compresión, redimensionamiento y conversión de imágenes usando ImageMagick
 - **`optimizer-video.sh`**: Compresión de videos con presets de resolución múltiples usando FFmpeg
 - **`convert_audio.sh`**: Conversión de audio y extracción de audio desde video usando FFmpeg
+- **`convert_docs.sh`**: Conversión de documentos (Markdown) a PDF, DOCX, etc. usando Pandoc
 
 Ambas herramientas están diseñadas para procesamiento por lotes con confirmación interactiva, reportes de ahorro de espacio y soporte para directorios personalizados.
 
@@ -18,6 +19,8 @@ Ambas herramientas están diseñadas para procesamiento por lotes con confirmaci
 - **Dependencias externas**:
   - [ImageMagick](https://imagemagick.org/) - Para procesamiento de imágenes
   - [FFmpeg](https://ffmpeg.org/) - Para procesamiento de videos
+- **`pandoc`** - Para conversión de documentos
+  - **`texlive`** - Para generación de PDFs (opcional)
 - **Sistema operativo**: Linux/Unix (compatible con macOS)
 
 ## 📦 Requisitos e Instalación
@@ -34,6 +37,9 @@ sudo apt install imagemagick
 
 # Instalar FFmpeg
 sudo apt install ffmpeg
+
+# Instalar Pandoc y LaTeX (para PDF)
+sudo apt install pandoc texlive-latex-base
 ```
 
 #### Fedora/RHEL/CentOS
@@ -86,6 +92,7 @@ cd scrips
 chmod +x optimizer-image.sh
 chmod +x optimizer-video.sh
 chmod +x convert_audio.sh
+chmod +x convert_docs.sh
 ```
 
 ## 🖼️ Uso: Optimizador de Imágenes
@@ -235,7 +242,36 @@ MP4, MKV, MOV, AVI, WebM, FLV, WMV, MPG, MPEG
 ./convert_audio.sh -i ./entrada -o ./salida_final -f mp3
 ```
 
-## 📁 Estructura del Proyecto
+## � Uso: Convertidor de Documentos
+
+### Opciones Disponibles
+
+| Alias Corto | Opción Larga | Descripción | Valor por Defecto |
+|-------------|--------------|-------------|-------------------|
+| `-f` | `--format` | Formato de salida (pdf, docx, html, odt) | `pdf` |
+| `-i` | `--input` | Archivo o directorio de entrada | Directorio actual |
+| `-o` | `--output` | Directorio de salida | `output_docs/` |
+| `-e` | `--extensions` | Extensiones a buscar (solo modo directorio) | `md` |
+| `-m` | `--margin` | Tamaño del margen para PDF (ej: 1cm, 0.5in) | `2cm` |
+| `-h` | `--help` | Mostrar ayuda | - |
+
+### Ejemplos de Uso
+
+```bash
+# Convertir un archivo Markdown a PDF con márgenes estándar
+./convert_docs.sh -i README.md -f pdf
+
+# Convertir a PDF con márgenes estrechos (1cm)
+./convert_docs.sh -i README.md -f pdf -m 1cm
+
+# Convertir todos los archivos .md de una carpeta a Word (DOCX)
+./convert_docs.sh -i ./docs -f docx
+
+# Convertir a HTML especificando salida
+./convert_docs.sh -i ./notas -o ./web -f html
+```
+
+## �📁 Estructura del Proyecto
 
 ```
 scrips/
@@ -246,6 +282,7 @@ scrips/
 │       └── readme-blueprint-generator.prompt.md
 ├── .gitignore                     # Archivos ignorados por Git
 ├── convert_audio.sh               # Script de conversión de audio
+├── convert_docs.sh                # Script de conversión de documentos
 ├── optimizer-image.sh             # Script de optimización de imágenes
 ├── optimizer-video.sh             # Script de optimización de videos
 ├── public/                        # Directorio para archivos procesados (gitignored)
@@ -282,6 +319,12 @@ scrips/
 - ✅ Soporte para múltiples extensiones de entrada
 - ✅ Búsqueda insensible a mayúsculas/minúsculas
 - ✅ Eliminación limpia de extensiones originales
+
+### Convertidor de Documentos
+- ✅ Conversión de Markdown a PDF, DOCX, HTML, ODT
+- ✅ Procesamiento por lotes o archivo único
+- ✅ Verificación de dependencias (Pandoc, LaTeX)
+- ✅ Gestión automática de directorios de salida
 
 ## 🔒 Características de Seguridad
 
