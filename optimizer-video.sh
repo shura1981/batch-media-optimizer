@@ -117,7 +117,7 @@ echo "======================================================"
 extensions=("mp4" "mkv" "mov" "avi" "webm" "flv" "wmv" "mpg" "mpeg")
 
 # Cambiar al directorio de entrada
-cd "$input_dir" || { echo "No se puede acceder al directorio de entrada: $input_dir"; exit 1; }
+# cd "$input_dir" || { echo "No se puede acceder al directorio de entrada: $input_dir"; exit 1; }
 
 # Función para convertir bytes a human-readable
 human_readable() {
@@ -132,73 +132,93 @@ human_readable() {
 
 # Procesar todos los archivos de video
 for ext in "${extensions[@]}"; do
-  for input_video in *.$ext; do
-    if [ -f "$input_video" ]; then
-      # Ruta completa del archivo original
-      full_input="$input_dir/$input_video"
+  # Buscar archivos en el directorio de entrada sin cambiar de directorio
+  # Usamos process substitution < <() para evitar subshells y mantener los contadores globales
+  while IFS= read -r -d '' full_input; do
+    if [ -f "$full_input" ]; then
+      # Nombre del archivo (basename)
+      input_video=$(basename "$full_input")
+      
       # Nombre base sin extensión
       base_name="${input_video%.*}"
+      
       # Archivo de salida
       output_video="$output_dir/${base_name}.mp4"
+
+      echo "Procesando video: $input_video"
 
       # Si ya existe y no se permite sobreescribir, saltar
       if [ -f "$output_video" ] && [ "$overwrite" = false ]; then
         echo "Saltando: $input_video (ya existe en destino)"
+        
+        # Sumar al total aunque se salte (para estadísticas)
         original_size=$(stat -c%s "$full_input" 2>/dev/null || echo 0)
+        compressed_size=$(stat -c%s "$output_video" 2>/dev/null || echo 0)
+        
         total_original=$((total_original + original_size))
-        total_comprimido=$((total_comprimido + $(stat -c%s "$output_video" 2>/dev/null)))
+        total_comprimido=$((total_comprimido + compressed_size))
+        
         echo "------------------------------------------------------"
         continue
       fi
 
-      echo "Procesando video: $input_video"
-
-      # Detectar ancho y alto originales si es modo auto
-      if [ "$mode" == "auto" ]; then
-        eval $(ffprobe -v error -of flat=s=_ -select_streams v:0 -show_entries stream=width,height "$full_input" | head -n2)
-        original_width=${streams_stream_0_width}
-        original_height=${streams_stream_0_height}
-        target_width=$original_width
-        target_height=$original_height
-        scale_filter="scale=-1:${target_height}"
-      else
-        scale_filter="scale=-1:${target_height},pad=${target_width}:${target_height}:(ow-iw)/2:(oh-ih)/2"
-      fi
-
-      # Obtener tamaño original antes de comprimir
+      # Obtener tamaño original
       original_size=$(stat -c%s "$full_input" 2>/dev/null || echo 0)
-      total_original=$((total_original + original_size))
 
-      # Comando FFmpeg
-      ffmpeg -i "$full_input" \
-             -vf "${scale_filter},setsar=1,fps=$fps" \
-             -c:v libx264 -crf "$q" -preset fast -pix_fmt yuv420p \
-             -c:a aac -b:a "${audio_bitrate}k" -ar 44100 \
-             "$output_video" && \
-      echo "Video comprimido guardado: $output_video"
-
-      # Obtener tamaño comprimido
-      compressed_size=$(stat -c%s "$output_video" 2>/dev/null || echo 0)
-      total_comprimido=$((total_comprimido + compressed_size))
-
-      # Eliminar original si se especificó
-      if [ "$delete_originals" = true ]; then
-        rm "$full_input"
-        echo "Archivo original eliminado: $full_input"
+      # Construir filtro de video
+      if [ "$mode" == "auto" ]; then
+        vf="fps=$fps"
+      else
+        vf="scale=$target_width:$target_height:force_original_aspect_ratio=decrease,pad=$target_width:$target_height:(ow-iw)/2:(oh-ih)/2,fps=$fps"
       fi
 
+      # Ejecutar ffmpeg
+      # -nostdin es CRUCIAL cuando se ejecuta ffmpeg dentro de un bucle while read
+      # Evita que ffmpeg "robe" la entrada estándar y rompa el bucle
+      ffmpeg -nostdin -i "$full_input" -vf "$vf" -c:v libx264 -crf "$q" -preset medium -c:a aac -b:a "${audio_bitrate}k" "$output_video" -y -hide_banner -loglevel error
+
+      if [ $? -eq 0 ]; then
+        compressed_size=$(stat -c%s "$output_video" 2>/dev/null || echo 0)
+        
+        # Actualizar totales globales
+        total_original=$((total_original + original_size))
+        total_comprimido=$((total_comprimido + compressed_size))
+
+        # Calcular ahorro individual
+        saved=$((original_size - compressed_size))
+        if [ $original_size -gt 0 ]; then
+            percent=$(( (saved * 100) / original_size ))
+        else
+            percent=0
+        fi
+
+        echo "Completado: $input_video"
+        echo "Original:   $(human_readable $original_size)"
+        echo "Comprimido: $(human_readable $compressed_size)"
+        echo "Ahorro:     $(human_readable $saved) ($percent%)"
+
+        if [ "$delete_originals" = true ]; then
+          rm "$full_input"
+          echo "Original eliminado."
+        fi
+      else
+        echo "Error al procesar $input_video"
+      fi
       echo "------------------------------------------------------"
     fi
-  done
+  done < <(find "$input_dir" -maxdepth 1 -name "*.$ext" -print0)
 done
 
-# Mostrar informe final
 echo "======================================================"
 echo "✅ Todos los videos han sido procesados."
 
 if (( total_original > 0 )); then
   ahorro=$((total_original - total_comprimido))
-  porcentaje=$((100 - (total_comprimido * 100 / total_original)))
+  if [ $total_original -gt 0 ]; then
+      porcentaje=$((100 - (total_comprimido * 100 / total_original)))
+  else
+      porcentaje=0
+  fi
 
   hr_original=$(human_readable "$total_original")
   hr_comprimido=$(human_readable "$total_comprimido")
@@ -213,4 +233,8 @@ if (( total_original > 0 )); then
   echo ""
 fi
 
-echo "✅ Proceso completado."
+echo "Videos guardados en: $output_dir"
+echo "======================================================"
+
+
+
