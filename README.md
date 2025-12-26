@@ -8,6 +8,7 @@ Este repositorio contiene dos utilidades de línea de comandos diseñadas para l
 
 - **`optimizer-image.sh`**: Compresión, redimensionamiento y conversión de imágenes usando ImageMagick
 - **`optimizer-video.sh`**: Compresión de videos con presets de resolución múltiples usando FFmpeg
+- **`convert_audio.sh`**: Conversión de audio y extracción de audio desde video usando FFmpeg
 
 Ambas herramientas están diseñadas para procesamiento por lotes con confirmación interactiva, reportes de ahorro de espacio y soporte para directorios personalizados.
 
@@ -84,6 +85,7 @@ cd scrips
 ```bash
 chmod +x optimizer-image.sh
 chmod +x optimizer-video.sh
+chmod +x convert_audio.sh
 ```
 
 ## 🖼️ Uso: Optimizador de Imágenes
@@ -195,6 +197,44 @@ MP4, MKV, MOV, AVI, WebM, FLV, WMV, MPG, MPEG
 - **24-26**: Calidad media-alta
 - **27-30**: Calidad media (mayor compresión)
 
+## 🎵 Uso: Convertidor de Audio
+
+### Opciones Disponibles
+
+| Alias Corto | Opción Larga | Descripción | Valor por Defecto |
+|-------------|--------------|-------------|-------------------|
+| `-f` | `--format` | Formato de salida (ogg, mp3) | `ogg` |
+| `-i` | `--input` | Archivo o directorio de entrada | Directorio actual |
+| `-o` | `--output` | Directorio de salida | `output_audio/` |
+| `-e` | `--extensions` | Extensiones a buscar (solo modo directorio) | `wav` |
+| `-h` | `--help` | Mostrar ayuda | - |
+
+### Características
+
+- **Conversión de Audio**: Convierte archivos de audio entre formatos soportados.
+- **Extracción de Audio**: Extrae la pista de audio de archivos de video.
+- **Modo Dual**: Funciona tanto con archivos individuales como con directorios completos.
+- **Búsqueda Flexible**: Soporta múltiples extensiones y búsqueda insensible a mayúsculas.
+
+### Ejemplos de Uso
+
+```bash
+# Convertir un archivo específico a MP3
+./convert_audio.sh -i cancion.wav -f mp3
+
+# Convertir todo un directorio a OGG (formato por defecto)
+./convert_audio.sh -i ./musica
+
+# Extraer audio de videos en una carpeta
+./convert_audio.sh -i ./videos -e "mp4,mkv" -f mp3
+
+# Convertir múltiples formatos de audio a la vez
+./convert_audio.sh -i ./mezclado -e "wav,flac,m4a" -f ogg
+
+# Especificar directorio de salida
+./convert_audio.sh -i ./entrada -o ./salida_final -f mp3
+```
+
 ## 📁 Estructura del Proyecto
 
 ```
@@ -205,6 +245,7 @@ scrips/
 │   └── prompts/
 │       └── readme-blueprint-generator.prompt.md
 ├── .gitignore                     # Archivos ignorados por Git
+├── convert_audio.sh               # Script de conversión de audio
 ├── optimizer-image.sh             # Script de optimización de imágenes
 ├── optimizer-video.sh             # Script de optimización de videos
 ├── public/                        # Directorio para archivos procesados (gitignored)
@@ -233,6 +274,14 @@ scrips/
 - ✅ Protección contra sobrescritura accidental
 - ✅ Opción para eliminar archivos originales
 - ✅ Reporte detallado de compresión
+
+### Convertidor de Audio
+- ✅ Conversión a formatos OGG y MP3
+- ✅ Extracción de audio desde archivos de video
+- ✅ Procesamiento de archivos individuales o directorios
+- ✅ Soporte para múltiples extensiones de entrada
+- ✅ Búsqueda insensible a mayúsculas/minúsculas
+- ✅ Eliminación limpia de extensiones originales
 
 ## 🔒 Características de Seguridad
 
