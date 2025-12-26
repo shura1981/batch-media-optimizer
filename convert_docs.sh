@@ -42,9 +42,9 @@ usage() {
     echo ""
     echo "  7. Convertir desde HTML a Markdown:"
     echo "     $0 -i pagina.html -f md"
-    echo ""
-    echo "  8. Convertir PDF a Markdown (experimental):"
-    echo "     $0 -i documento.pdf -f md"
+    # echo ""
+    # echo "  8. Convertir PDF a Markdown (experimental - deshabilitado):"
+    # echo "     $0 -i documento.pdf -f md"
     exit 0
 }
 
@@ -197,6 +197,13 @@ for file in "${files[@]}"; do
         fi
         # Configurar márgenes (geometry)
         PANDOC_ARGS+=("-V" "geometry:margin=$MARGIN")
+    fi
+
+    # Verificar si la entrada es PDF (no soportado)
+    if [[ "$file" == *.pdf ]]; then
+        echo "   -> ADVERTENCIA: Formato de entrada PDF no soportado."
+        echo "      Este script no realiza conversión desde PDF (OCR/Extracción)."
+        continue
     fi
 
     # Ejecutar pandoc

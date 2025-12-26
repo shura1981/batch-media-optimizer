@@ -38,7 +38,7 @@ sudo apt install imagemagick
 # Instalar FFmpeg
 sudo apt install ffmpeg
 
-# Instalar Pandoc y LaTeX (para PDF)
+# Instalar Pandoc y LaTeX (para crear PDF)
 sudo apt install pandoc texlive-latex-base
 ```
 
