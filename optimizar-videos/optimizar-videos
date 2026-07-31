@@ -1,0 +1,900 @@
+#!/usr/bin/env bash
+
+# Optimizador de videos para web. Consulta README.md en este directorio.
+set -Eeuo pipefail
+IFS=$'\n\t'
+
+readonly SCRIPT_VERSION="2.3.0"
+
+program_name="${0##*/}"
+invocation_dir="$(pwd -P)"
+
+# Valores predeterminados seguros para uso general.
+crf=23
+mode="auto"
+fps="source"
+audio_bitrate=96
+preset="medium"
+fit="contain"
+input_arg="."
+output_arg=""
+input_was_set=false
+output_was_set=false
+overwrite=false
+delete_originals=false
+keep_audio=true
+faststart_only=false
+recursive=false
+clean_output=true
+dry_run=false
+generate_poster=false
+poster_quality=82
+
+current_temp_file=""
+
+show_help() {
+  cat <<EOF
+Uso:
+  $program_name [ARCHIVO_O_DIRECTORIO] [opciones]
+  $program_name -i ARCHIVO_O_DIRECTORIO [opciones]
+
+Optimiza videos para la web y genera archivos MP4 con el índice de reproducción
+al comienzo (fast start). Por defecto conserva la resolución, relación de
+aspecto y FPS originales.
+
+RECETAS RÁPIDAS
+
+  Video hero que necesita compresión:
+
+    Para escritorio (1280x720):
+      $program_name ./portada.mp4 --hero --mode desktop --poster
+
+    Para móvil (720x1280):
+      $program_name ./portada-mobile.mov --hero --mode mobile --poster
+
+    Conservando la resolución original:
+      $program_name ./portada.mp4 --hero
+
+    --hero realiza una compresión web H.264, elimina el audio, recorta para
+    cubrir todo el lienzo y aplica fast start. Úsalo con archivos originales
+    pesados, exportaciones del editor, videos 4K, MOV o videos que todavía no
+    han sido preparados para la web.
+
+  Video hero que YA tiene buen peso y resolución:
+    $program_name ./portada.mp4 --hero-copy
+
+    --hero-copy no recomprime los fotogramas. Solamente elimina el audio y
+    reorganiza el MP4 con fast start. Equivale a:
+    $program_name ./portada.mp4 --faststart-only --mute
+
+  Comprimir conservando resolución y FPS:
+    $program_name ./mis-videos
+
+  Crear videos verticales móviles sin audio:
+    $program_name ./mis-videos --mode mobile --mute
+
+  Ver qué se ejecutaría sin modificar archivos:
+    $program_name ./portada.mp4 --hero --mode desktop --dry-run
+
+DIRECTORIOS Y ARCHIVOS
+
+  Entrada:
+    Puede ser un solo archivo de video o una carpeta con varios videos. Admite
+    rutas relativas y absolutas. Puedes pasarla como primer argumento o con
+    --input.
+
+  Salida:
+    Si no indicas --output, se crea "videos_renderizados" junto al archivo o
+    dentro del directorio de entrada.
+
+    El directorio de salida se limpia antes de cada ejecución. Los originales
+    no se modifican ni eliminan, salvo que uses --delete-originals.
+
+  Ejemplo:
+    ./mis-videos/portada.mov
+      -> ./mis-videos/videos_renderizados/portada.mp4
+
+Opciones principales:
+  -i, --input RUTA             Archivo o directorio de entrada (por defecto: .)
+  -o, --output DIRECTORIO      Directorio de construcción
+                               (por defecto: <entrada>/videos_renderizados)
+  -q, --crf NUMERO             Calidad visual de la compresión H.264
+                               (por defecto: 23)
+  -m, --mode MODO              Resolución de salida:
+                                 auto       conserva la resolución
+                                 mobile     720x1280
+                                 vertical   1080x1920
+                                 desktop    1280x720
+                                 hd|fullhd  1920x1080
+  -f, --fps FPS                Fotogramas por segundo del video resultante
+                               (por defecto: source)
+  -b, --audio-bitrate KBPS     Calidad/bitrate del audio AAC en kbps
+                               (por defecto: 96)
+  -p, --preset PRESET          Velocidad/eficiencia del compresor x264
+                               (por defecto: medium)
+      --fit MODO               Ajuste al lienzo: contain o cover
+                               (por defecto: contain)
+
+DETALLE DE CALIDAD Y COMPRESIÓN
+
+  -q, --crf NUMERO
+    Controla la calidad visual del video H.264. Un número menor produce mayor
+    calidad y archivos más pesados; uno mayor reduce peso y calidad.
+
+      18-20  calidad muy alta, archivos más grandes
+      21-23  alta calidad; recomendado para un hero
+      24-26  mayor compresión y menor peso
+      27+    pérdida visual más evidente
+
+    Solo se utiliza al comprimir. Se ignora con --faststart-only y --hero-copy.
+
+  -f, --fps FPS
+    Define cuántas imágenes se muestran por segundo. Por defecto, "source"
+    conserva los FPS originales y evita crear o eliminar fotogramas.
+
+      source  conserva los FPS originales; recomendado normalmente
+      30      movimiento fluido habitual para web
+      24      aspecto cinematográfico y posible reducción de peso
+      15      menor peso, pero movimiento visiblemente menos fluido
+
+    Reducir los FPS puede disminuir el peso. Aumentarlos no crea movimiento
+    real adicional: FFmpeg tendría que repetir fotogramas. Se ignora con
+    --faststart-only y --hero-copy.
+
+  -b, --audio-bitrate KBPS
+    Controla cuántos kilobits por segundo utiliza el audio AAC. Un número mayor
+    mejora el audio, pero aumenta el tamaño del archivo.
+
+      64   suficiente para voz
+      96   calidad general para web; valor predeterminado
+      128  mejor para música
+      192  alta calidad, pero mayor peso
+
+    Se ignora con --mute y --hero porque esas opciones eliminan el audio.
+    También se ignora con --faststart-only/--hero-copy, donde el audio se copia
+    sin recomprimir, salvo que se elimine mediante --mute.
+
+  -p, --preset PRESET
+    Controla cuánto tiempo emplea x264 buscando una compresión eficiente.
+    No determina directamente la calidad: con el mismo CRF, un preset lento
+    suele producir un archivo menor, pero tarda más.
+
+      fast    procesamiento rápido, archivo potencialmente mayor
+      medium  equilibrio predeterminado
+      slow    recomendado cuando importa reducir el peso
+
+    Valores disponibles:
+      ultrafast, superfast, veryfast, faster, fast, medium,
+      slow, slower, veryslow
+
+    Se ignora con --faststart-only y --hero-copy.
+
+Opciones para videos hero:
+      --hero                    Comprime en H.264, elimina audio y aplica
+                               fast start. Admite --mode, --crf y --preset
+      --hero-copy               Para videos ya preparados: no recomprime,
+                               elimina audio y aplica fast start
+      --mute                    Elimina por completo la pista de audio
+      --faststart-only          Reorganiza el MP4 sin recomprimir el video,
+                               sin cambiar resolución, calidad ni FPS
+      --poster                  Exporta el primer fotograma clave del video
+                               resultante como <nombre>-poster.webp
+      --poster-quality NUMERO   Calidad WebP de la portada entre 1 y 100
+                               (por defecto: 82; activa --poster)
+
+PORTADA DEL VIDEO
+
+  --poster
+    Extrae el primer fotograma clave del MP4 resultante y genera una imagen WebP
+    con el mismo encuadre y resolución del video optimizado.
+
+    Ejemplo:
+      $program_name ./portada.mov --hero --mode desktop --poster
+
+    Archivos generados:
+      videos_renderizados/portada.mp4
+      videos_renderizados/portada-poster.webp
+
+    WebP ofrece buen peso y calidad para usar la imagen en el atributo poster
+    del elemento <video> o como fondo temporal del hero.
+
+  --poster-quality NUMERO
+    Controla la calidad de la portada WebP:
+
+      70-79  menor peso
+      80-85  equilibrio recomendado para web
+      86-95  mayor calidad y peso
+
+    Esta calidad solamente afecta la imagen; no modifica el video.
+
+Procesamiento:
+  -r, --recursive              Incluye subdirectorios y conserva su estructura
+      --overwrite              Sobrescribe salidas con --no-clean
+      --no-clean               No limpia el directorio de construcción
+                               (por defecto se limpia antes de cada ejecución)
+      --delete-originals       Elimina cada original únicamente después de
+                               generar y validar correctamente su salida
+      --dry-run                Muestra las operaciones sin modificar archivos
+  -h, --help                   Muestra esta ayuda
+  -V, --version                Muestra la versión
+
+Extensiones:
+  mp4, mkv, mov, m4v, avi, webm, flv, wmv, mpg, mpeg
+
+Ejemplos:
+  $program_name ./portada.mp4 --hero --mode desktop
+  $program_name ./portada.mp4 --hero --mode desktop --poster
+  $program_name /ruta/absoluta/portada.mov --hero --mode mobile
+  $program_name ./mis-videos --hero --mode desktop
+  $program_name ./mis-videos --hero --mode mobile
+  $program_name ./mis-videos --hero-copy
+  $program_name ./originales --mode mobile --mute
+  $program_name -i ./originales -o ./build -m desktop --fit cover
+  $program_name ./videos --recursive -q 25 -p slow
+
+Notas:
+  * Las rutas relativas se resuelven desde el directorio donde ejecutas el comando.
+  * --faststart-only funciona mejor con MP4/H.264. Si el contenedor no admite
+    las pistas originales, usa la compresión normal.
+EOF
+}
+
+die() {
+  printf 'Error: %s\n' "$*" >&2
+  exit 1
+}
+
+require_value() {
+  local option="$1"
+  local value="${2-}"
+  [[ -n "$value" && "$value" != -* ]] || die "La opción $option requiere un valor."
+}
+
+command_exists() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+cleanup_temp_file() {
+  if [[ -n "$current_temp_file" && -f "$current_temp_file" ]]; then
+    rm -f -- "$current_temp_file"
+  fi
+}
+
+trap cleanup_temp_file EXIT
+trap 'cleanup_temp_file; exit 130' INT
+trap 'cleanup_temp_file; exit 143' TERM
+
+positional_args=()
+
+while (($# > 0)); do
+  case "$1" in
+    -i|--input)
+      require_value "$1" "${2-}"
+      input_arg="$2"
+      input_was_set=true
+      shift 2
+      ;;
+    -o|--output)
+      require_value "$1" "${2-}"
+      output_arg="$2"
+      output_was_set=true
+      shift 2
+      ;;
+    -q|--crf)
+      require_value "$1" "${2-}"
+      crf="$2"
+      shift 2
+      ;;
+    -m|--mode)
+      require_value "$1" "${2-}"
+      mode="$2"
+      shift 2
+      ;;
+    -f|--fps)
+      require_value "$1" "${2-}"
+      fps="$2"
+      shift 2
+      ;;
+    -b|--audio-bitrate)
+      require_value "$1" "${2-}"
+      audio_bitrate="$2"
+      shift 2
+      ;;
+    -p|--preset)
+      require_value "$1" "${2-}"
+      preset="$2"
+      shift 2
+      ;;
+    --fit)
+      require_value "$1" "${2-}"
+      fit="$2"
+      shift 2
+      ;;
+    --mute|--no-audio)
+      keep_audio=false
+      shift
+      ;;
+    --hero)
+      faststart_only=false
+      keep_audio=false
+      fit="cover"
+      shift
+      ;;
+    --hero-copy|--hero-ready)
+      faststart_only=true
+      keep_audio=false
+      shift
+      ;;
+    --faststart-only)
+      faststart_only=true
+      shift
+      ;;
+    --poster)
+      generate_poster=true
+      shift
+      ;;
+    --poster-quality)
+      require_value "$1" "${2-}"
+      poster_quality="$2"
+      generate_poster=true
+      shift 2
+      ;;
+    -r|--recursive)
+      recursive=true
+      shift
+      ;;
+    --overwrite)
+      overwrite=true
+      shift
+      ;;
+    --no-clean)
+      clean_output=false
+      shift
+      ;;
+    --delete-originals)
+      delete_originals=true
+      shift
+      ;;
+    --dry-run)
+      dry_run=true
+      shift
+      ;;
+    -h|--help)
+      show_help
+      exit 0
+      ;;
+    -V|--version)
+      printf '%s %s\n' "$program_name" "$SCRIPT_VERSION"
+      exit 0
+      ;;
+    --)
+      shift
+      while (($# > 0)); do
+        positional_args+=("$1")
+        shift
+      done
+      ;;
+    -*)
+      die "Parámetro desconocido: $1. Usa --help para ver las opciones."
+      ;;
+    *)
+      positional_args+=("$1")
+      shift
+      ;;
+  esac
+done
+
+((${#positional_args[@]} <= 1)) ||
+  die "Solo se admite un archivo o directorio de entrada posicional."
+
+if ((${#positional_args[@]} == 1)); then
+  [[ "$input_was_set" == false ]] ||
+    die "Usa un directorio posicional o --input, pero no ambos."
+  input_arg="${positional_args[0]}"
+fi
+
+command_exists ffmpeg || die "No se encontró ffmpeg en PATH."
+command_exists ffprobe || die "No se encontró ffprobe en PATH."
+command_exists realpath || die "No se encontró realpath en PATH."
+
+[[ "$crf" =~ ^[0-9]+$ ]] && ((crf >= 0 && crf <= 51)) ||
+  die "CRF debe ser un número entero entre 0 y 51."
+
+[[ "$audio_bitrate" =~ ^[0-9]+$ ]] && ((audio_bitrate > 0)) ||
+  die "El bitrate de audio debe ser un entero positivo en kbps."
+
+[[ "$poster_quality" =~ ^[0-9]+$ ]] &&
+  ((poster_quality >= 1 && poster_quality <= 100)) ||
+  die "La calidad de la portada debe ser un entero entre 1 y 100."
+
+if [[ "$fps" != "source" ]]; then
+  [[ "$fps" =~ ^([0-9]+)(\.[0-9]+)?$ ]] ||
+    die "FPS debe ser un número positivo o 'source'."
+  awk -v value="$fps" 'BEGIN { exit !(value > 0) }' ||
+    die "FPS debe ser mayor que cero."
+fi
+
+case "$preset" in
+  ultrafast|superfast|veryfast|faster|fast|medium|slow|slower|veryslow) ;;
+  *) die "Preset no válido: $preset." ;;
+esac
+
+case "$fit" in
+  contain|cover) ;;
+  *) die "Ajuste no válido: $fit. Usa contain o cover." ;;
+esac
+
+target_width=""
+target_height=""
+
+case "$mode" in
+  auto) ;;
+  mobile)
+    target_width=720
+    target_height=1280
+    ;;
+  vertical)
+    target_width=1080
+    target_height=1920
+    ;;
+  desktop)
+    target_width=1280
+    target_height=720
+    ;;
+  hd|fullhd)
+    target_width=1920
+    target_height=1080
+    ;;
+  *) die "Modo no válido: $mode." ;;
+esac
+
+[[ -e "$input_arg" ]] ||
+  die "La entrada no existe: $input_arg"
+
+input_source="$(realpath -e -- "$input_arg")"
+single_input_file=""
+
+if [[ -f "$input_source" ]]; then
+  single_input_file="$input_source"
+  input_dir="$(dirname -- "$input_source")"
+elif [[ -d "$input_source" ]]; then
+  input_dir="$input_source"
+else
+  die "La entrada debe ser un archivo regular o un directorio: $input_source"
+fi
+
+if [[ "$output_was_set" == false ]]; then
+  output_arg="$input_dir/videos_renderizados"
+elif [[ "$output_arg" != /* ]]; then
+  output_arg="$invocation_dir/$output_arg"
+fi
+
+[[ ! -L "$output_arg" ]] ||
+  die "El directorio de salida no puede ser un enlace simbólico: $output_arg"
+
+output_dir="$(realpath -m -- "$output_arg")"
+
+[[ "$output_dir" != "/" ]] ||
+  die "El directorio raíz no puede usarse como salida."
+
+if [[ -n "${HOME:-}" ]]; then
+  [[ "$output_dir" != "$(realpath -m -- "$HOME")" ]] ||
+    die "El directorio personal completo no puede usarse como salida."
+fi
+
+[[ "$output_dir" != "$input_dir" ]] ||
+  die "Entrada y salida no pueden ser el mismo directorio."
+
+case "$input_dir/" in
+  "$output_dir/"*)
+    die "La salida no puede contener al directorio de entrada: $output_dir"
+    ;;
+esac
+
+if [[ -e "$output_dir" && ! -d "$output_dir" ]]; then
+  die "La ruta de salida existe y no es un directorio: $output_dir"
+fi
+
+clean_build_directory() {
+  if [[ "$dry_run" == true ]]; then
+    printf '[simulación] Limpiar directorio de construcción: %s\n' "$output_dir"
+    return
+  fi
+
+  mkdir -p -- "$output_dir"
+
+  if [[ "$clean_output" == true ]]; then
+    find "$output_dir" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+  fi
+}
+
+discover_videos() {
+  local extension_expression=(
+    -iname '*.mp4' -o
+    -iname '*.mkv' -o
+    -iname '*.mov' -o
+    -iname '*.m4v' -o
+    -iname '*.avi' -o
+    -iname '*.webm' -o
+    -iname '*.flv' -o
+    -iname '*.wmv' -o
+    -iname '*.mpg' -o
+    -iname '*.mpeg'
+  )
+
+  if [[ -n "$single_input_file" ]]; then
+    printf '%s\0' "$single_input_file"
+  elif [[ "$recursive" == true ]]; then
+    find "$input_dir" \
+      -path "$output_dir" -prune -o \
+      -type f \( "${extension_expression[@]}" \) -print0
+  else
+    find "$input_dir" -maxdepth 1 \
+      -type f \( "${extension_expression[@]}" \) -print0
+  fi
+}
+
+human_readable() {
+  local bytes="${1:-0}"
+  if command_exists numfmt; then
+    numfmt --to=iec-i --suffix=B "$bytes"
+  else
+    awk -v bytes="$bytes" '
+      BEGIN {
+        split("B KiB MiB GiB TiB", units, " ")
+        unit = 1
+        while (bytes >= 1024 && unit < 5) {
+          bytes /= 1024
+          unit++
+        }
+        printf "%.1f %s", bytes, units[unit]
+      }
+    '
+  fi
+}
+
+print_command() {
+  printf '  '
+  printf '%q ' "$@"
+  printf '\n'
+}
+
+verify_faststart() {
+  local file="$1"
+  local moov_offset
+  local mdat_offset
+
+  moov_offset="$(
+    LC_ALL=C grep -aob -m1 'moov' "$file" 2>/dev/null |
+      cut -d: -f1 || true
+  )"
+  mdat_offset="$(
+    LC_ALL=C grep -aob -m1 'mdat' "$file" 2>/dev/null |
+      cut -d: -f1 || true
+  )"
+
+  [[ "$moov_offset" =~ ^[0-9]+$ ]] &&
+    [[ "$mdat_offset" =~ ^[0-9]+$ ]] &&
+    ((moov_offset < mdat_offset))
+}
+
+build_video_filter() {
+  local filter_chain
+
+  if [[ "$mode" == "auto" ]]; then
+    filter_chain="scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1"
+  elif [[ "$fit" == "cover" ]]; then
+    filter_chain="scale=${target_width}:${target_height}:force_original_aspect_ratio=increase:force_divisible_by=2,crop=${target_width}:${target_height},setsar=1"
+  else
+    filter_chain="scale=${target_width}:${target_height}:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=${target_width}:${target_height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1"
+  fi
+
+  if [[ "$fps" != "source" ]]; then
+    filter_chain+=",fps=$fps"
+  fi
+
+  printf '%s' "$filter_chain"
+}
+
+clean_build_directory
+
+mapfile -d '' -t input_videos < <(discover_videos | sort -z)
+
+if ((${#input_videos[@]} == 0)); then
+  printf 'No se encontraron videos en: %s\n' "$input_source"
+  exit 0
+fi
+
+declare -a output_videos=()
+declare -A planned_outputs=()
+
+for input_video in "${input_videos[@]}"; do
+  relative_path="${input_video#"$input_dir"/}"
+  relative_stem="${relative_path%.*}"
+  output_video="$output_dir/${relative_stem}.mp4"
+
+  if [[ -n "${planned_outputs[$output_video]+present}" ]]; then
+    die "Dos entradas producirían la misma salida: ${planned_outputs[$output_video]} y $input_video"
+  fi
+
+  planned_outputs["$output_video"]="$input_video"
+  output_videos+=("$output_video")
+done
+
+printf '%s\n' '============================================================'
+printf 'Optimización de videos %s\n' "$SCRIPT_VERSION"
+printf 'Entrada:              %s\n' "$input_source"
+printf 'Construcción:         %s\n' "$output_dir"
+printf 'Archivos encontrados: %d\n' "${#input_videos[@]}"
+printf 'Operación:             %s\n' "$(
+  if [[ "$faststart_only" == true ]]; then
+    printf 'fast start sin recompresión'
+  else
+    printf 'compresión web H.264'
+  fi
+)"
+printf 'Audio:                 %s\n' "$(
+  if [[ "$keep_audio" == false ]]; then
+    printf 'eliminado'
+  elif [[ "$faststart_only" == true ]]; then
+    printf 'conservado sin recompresión'
+  else
+    printf 'AAC %sk' "$audio_bitrate"
+  fi
+)"
+
+if [[ "$faststart_only" == false ]]; then
+  printf 'Resolución:            %s\n' "$(
+    if [[ "$mode" == "auto" ]]; then
+      printf 'original'
+    else
+      printf '%sx%s (%s)' "$target_width" "$target_height" "$fit"
+    fi
+  )"
+  printf 'FPS:                   %s\n' "$fps"
+  printf 'CRF / preset:          %s / %s\n' "$crf" "$preset"
+fi
+
+printf 'Limpiar construcción: %s\n' "$clean_output"
+printf 'Generar portada:      %s\n' "$(
+  if [[ "$generate_poster" == true ]]; then
+    printf 'WebP, calidad %s' "$poster_quality"
+  else
+    printf 'false'
+  fi
+)"
+printf 'Simulación:            %s\n' "$dry_run"
+printf '%s\n' '============================================================'
+
+total_original=0
+total_output=0
+processed=0
+skipped=0
+failed=0
+
+for index in "${!input_videos[@]}"; do
+  input_video="${input_videos[$index]}"
+  output_video="${output_videos[$index]}"
+
+  if [[ -f "$output_video" && "$overwrite" == false ]]; then
+    printf 'Omitido (ya existe): %s\n' "$output_video"
+    ((skipped += 1))
+    continue
+  fi
+
+  codec_name="$(
+    ffprobe -v error -select_streams v:0 \
+      -show_entries stream=codec_name -of default=nw=1:nk=1 \
+      "$input_video" 2>/dev/null | head -n1 || true
+  )"
+
+  if [[ -z "$codec_name" ]]; then
+    printf 'Error: no se encontró una pista de video válida en %s\n' "$input_video" >&2
+    ((failed += 1))
+    continue
+  fi
+
+  original_size="$(stat -c '%s' -- "$input_video")"
+
+  mkdir_command=(mkdir -p -- "$(dirname -- "$output_video")")
+  temp_video="${output_video}.part-${BASHPID}.mp4"
+  current_temp_file="$temp_video"
+
+  ffmpeg_command=(
+    ffmpeg
+    -hide_banner
+    -loglevel warning
+    -stats
+    -nostdin
+    -y
+    -i "$input_video"
+    -map 0:v:0
+  )
+
+  if [[ "$keep_audio" == true ]]; then
+    ffmpeg_command+=(-map '0:a:0?')
+  else
+    ffmpeg_command+=(-an)
+  fi
+
+  ffmpeg_command+=(-sn -dn)
+
+  if [[ "$faststart_only" == true ]]; then
+    ffmpeg_command+=(-c:v copy)
+    if [[ "$keep_audio" == true ]]; then
+      ffmpeg_command+=(-c:a copy)
+    fi
+  else
+    video_filter="$(build_video_filter)"
+    ffmpeg_command+=(
+      -vf "$video_filter"
+      -c:v libx264
+      -preset "$preset"
+      -crf "$crf"
+      -pix_fmt yuv420p
+      -tag:v avc1
+    )
+    if [[ "$keep_audio" == true ]]; then
+      ffmpeg_command+=(
+        -c:a aac
+        -b:a "${audio_bitrate}k"
+        -ar 48000
+        -ac 2
+      )
+    fi
+  fi
+
+  ffmpeg_command+=(
+    -movflags +faststart
+    -map_metadata 0
+    "$temp_video"
+  )
+
+  poster_output="${output_video%.mp4}-poster.webp"
+  temp_poster="${poster_output}.part-${BASHPID}.webp"
+  poster_command=(
+    ffmpeg
+    -hide_banner
+    -loglevel warning
+    -nostdin
+    -y
+    -i "$output_video"
+    -map 0:v:0
+    -an
+    -sn
+    -vf 'select=eq(pict_type\,I)'
+    -frames:v 1
+    -c:v libwebp
+    -quality "$poster_quality"
+    -compression_level 6
+    -update 1
+    "$temp_poster"
+  )
+
+  printf '\nProcesando: %s\n' "$input_video"
+  printf 'Códec de entrada: %s\n' "$codec_name"
+
+  if [[ "$dry_run" == true ]]; then
+    print_command "${mkdir_command[@]}"
+    print_command "${ffmpeg_command[@]}"
+    printf '  mv %q %q\n' "$temp_video" "$output_video"
+    if [[ "$generate_poster" == true ]]; then
+      print_command "${poster_command[@]}"
+      printf '  mv %q %q\n' "$temp_poster" "$poster_output"
+    fi
+    if [[ "$delete_originals" == true ]]; then
+      printf '  rm %q\n' "$input_video"
+    fi
+    ((processed += 1))
+    current_temp_file=""
+    continue
+  fi
+
+  "${mkdir_command[@]}"
+  rm -f -- "$temp_video"
+
+  if ! "${ffmpeg_command[@]}"; then
+    printf 'Error: FFmpeg no pudo procesar %s\n' "$input_video" >&2
+    rm -f -- "$temp_video"
+    current_temp_file=""
+    ((failed += 1))
+    continue
+  fi
+
+  if ! ffprobe -v error -select_streams v:0 \
+    -show_entries stream=codec_name -of csv=p=0 \
+    "$temp_video" >/dev/null 2>&1; then
+    printf 'Error: la salida generada no contiene un video válido: %s\n' "$temp_video" >&2
+    rm -f -- "$temp_video"
+    current_temp_file=""
+    ((failed += 1))
+    continue
+  fi
+
+  if ! verify_faststart "$temp_video"; then
+    printf 'Error: no se pudo verificar fast start en %s\n' "$temp_video" >&2
+    rm -f -- "$temp_video"
+    current_temp_file=""
+    ((failed += 1))
+    continue
+  fi
+
+  mv -f -- "$temp_video" "$output_video"
+  current_temp_file=""
+
+  poster_size=0
+
+  if [[ "$generate_poster" == true ]]; then
+    current_temp_file="$temp_poster"
+    rm -f -- "$temp_poster"
+
+    if ! "${poster_command[@]}"; then
+      printf 'Error: no se pudo generar la portada de %s\n' "$output_video" >&2
+      rm -f -- "$temp_poster"
+      current_temp_file=""
+      ((failed += 1))
+      continue
+    fi
+
+    if ! ffprobe -v error -select_streams v:0 \
+      -show_entries stream=codec_name -of csv=p=0 \
+      "$temp_poster" >/dev/null 2>&1; then
+      printf 'Error: la portada generada no es válida: %s\n' "$temp_poster" >&2
+      rm -f -- "$temp_poster"
+      current_temp_file=""
+      ((failed += 1))
+      continue
+    fi
+
+    mv -f -- "$temp_poster" "$poster_output"
+    current_temp_file=""
+    poster_size="$(stat -c '%s' -- "$poster_output")"
+    printf 'Portada: %s (%s)\n' \
+      "$poster_output" "$(human_readable "$poster_size")"
+  fi
+
+  output_size="$(stat -c '%s' -- "$output_video")"
+  total_original=$((total_original + original_size))
+  total_output=$((total_output + output_size + poster_size))
+  ((processed += 1))
+
+  printf 'Guardado: %s\n' "$output_video"
+  printf 'Tamaño: %s -> %s\n' \
+    "$(human_readable "$original_size")" \
+    "$(human_readable "$output_size")"
+  printf 'Fast start: verificado\n'
+
+  if [[ "$delete_originals" == true ]]; then
+    rm -- "$input_video"
+    printf 'Original eliminado: %s\n' "$input_video"
+  fi
+done
+
+printf '\n%s\n' '============================================================'
+printf 'Procesados: %d | Omitidos: %d | Fallidos: %d\n' \
+  "$processed" "$skipped" "$failed"
+
+if [[ "$dry_run" == false && "$total_original" -gt 0 ]]; then
+  difference=$((total_original - total_output))
+  percentage=$((100 - (total_output * 100 / total_original)))
+
+  printf 'Tamaño original: %s\n' "$(human_readable "$total_original")"
+  printf 'Tamaño final:    %s\n' "$(human_readable "$total_output")"
+
+  if ((difference >= 0)); then
+    printf 'Ahorro:          %s (%d%%)\n' \
+      "$(human_readable "$difference")" "$percentage"
+  else
+    growth=$((-difference))
+    printf 'Incremento:      %s (%d%%)\n' \
+      "$(human_readable "$growth")" "$((-percentage))"
+  fi
+fi
+
+printf '%s\n' '============================================================'
+
+if ((failed > 0)); then
+  exit 1
+fi
+
+printf 'Proceso completado correctamente.\n'
